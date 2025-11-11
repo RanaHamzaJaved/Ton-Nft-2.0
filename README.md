@@ -1,4 +1,4 @@
-# firstNftTest
+# InitialNft2.0
 
 ## Project structure
 

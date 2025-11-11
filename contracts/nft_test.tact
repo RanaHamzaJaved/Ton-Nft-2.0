@@ -1,52 +1,72 @@
 import "./message.tact";
-const minTonsForStorage: Int = ton("0.02");
-const gasConsumption: Int = ton("0.02");
+import "@stdlib/deploy";
+import "@stdlib/ownable";
+const minTonsForStorage: Int = ton("0.05");
+const gasConsumption: Int = ton("0.03");
 
-contract NftCollection {
+contract NftCollection with Deployable {
     nextItemIndex: Int;
     ownerAddress: Address;
-    royaltyParams: RoyaltyParams?;                      
-    collectionContent: Cell;   
+    royaltyParams: RoyaltyParams?;
+    collectionContent: Cell;
+    nftPrice: Int;
+    authorityAddress: Address;
 
-    init(owner_address: Address, collection_content: Cell, royalty_params: RoyaltyParams, nextItemIndex: Int){
+    init(owner_address: Address, collection_content: Cell, royalty_params: RoyaltyParams?, nextItemIndex: Int, nft_price: Int) {
         self.ownerAddress = owner_address;
-        self.collectionContent = collection_content; 
+        self.collectionContent = collection_content;
         self.royaltyParams = royalty_params;
         self.nextItemIndex = nextItemIndex;
+        self.nftPrice = nft_price;  
+        self.authorityAddress = owner_address;
+
     }
 
     receive("Mint"){
-        let ctx: Context = context(); // get sender Info
+        let ctx: Context = context();
         let msgValue: Int = ctx.value;
+
+        let totalCost: Int = self.get_nft_mint_total_cost();
+        require(msgValue >= totalCost, "Insufficient funds for minting");
+
         let tonBalanceBeforeMsg: Int = myBalance() - msgValue;
-        let storageFee: Int = minTonsForStorage - min(tonBalanceBeforeMsg, minTonsForStorage);
-        msgValue -= storageFee + gasConsumption;
+        let storageFee: Int = max(0, minTonsForStorage - min(tonBalanceBeforeMsg, minTonsForStorage));
+        msgValue -= storageFee + gasConsumption + self.nftPrice;
+
+        if (self.nftPrice > 0) {
+            send(SendParameters{
+                to: self.ownerAddress,
+                value: self.nftPrice,
+                bounce: false,
+                mode: SendIgnoreErrors,
+                body: "NFT Sale".asComment()
+            });
+        }
+
         self.mint(ctx.sender, msgValue);
 
-        emit(LogEventMintRecord{ minter: sender(), item_id: self.nextItemIndex, generate_number: nativeRandom() }.toCell());
+        emit(LogEventMintRecord{ minter: sender(), item_id: self.nextItemIndex - 1, generate_number: nativeRandom() }.toCell());
     }
 
-    // ===== Private Methods ===== //
     inline fun mint(sender: Address, msgValue: Int) {
         require(self.nextItemIndex >= 0, "non-sequential NFTs");
         let nftInit: StateInit = self.getNftItemInit(self.nextItemIndex);
         send(SendParameters{
-                to: contractAddress(nftInit), 
-                value: msgValue, 
-                bounce: false,
-                mode: SendIgnoreErrors,
-                body: Transfer {
-                    query_id: 0,
-                    new_owner: sender,
-                    response_destination: self.ownerAddress,
-                    custom_payload: self.collectionContent,
-                    forward_amount: 0,
-                    forward_payload: emptySlice()
-                }.toCell(),
-                code: nftInit.code,
-                data: nftInit.data
-            });
-        // dump(self.next_item_index); // Reference at: https://tact-by-example.org/03-emit
+            to: contractAddress(nftInit),
+            value: msgValue,
+            bounce: false,
+            mode: SendIgnoreErrors,
+            body: Transfer{
+                query_id: 0,
+                new_owner: sender,
+                response_destination: self.ownerAddress,
+                custom_payload: self.collectionContent,
+                forward_amount: 0,
+                forward_payload: emptySlice()
+            }.toCell(),
+            code: nftInit.code,
+            data: nftInit.data
+        });
         self.nextItemIndex += 1;
     }
 
@@ -66,12 +86,15 @@ contract NftCollection {
         });        
     }
 
-    // ------------------ Get Function  ------------------ //
+    get fun get_nft_mint_total_cost(): Int {
+        return (minTonsForStorage + gasConsumption + self.nftPrice);
+    }
+
     get fun get_collection_data(): CollectionData {     
         let b: StringBuilder = beginString();
         let collectionDataString: String = self.collectionContent.asSlice().asString();
         b.append(collectionDataString);
-        b.append("meta.json"); // You can changed this your self.
+        b.append("collection.json");
         return CollectionData{
             next_item_index: self.nextItemIndex, 
             collection_content: b.toCell(), 
@@ -85,7 +108,7 @@ contract NftCollection {
     }
 
     get fun getNftItemInit(item_index: Int): StateInit {
-        return initOf NftItemSimple(myAddress(), item_index);
+        return initOf NftItemSimple(myAddress(), item_index, self.authorityAddress);
     }
 
     get fun get_nft_content(index: Int, individual_content: Cell): Cell { 
@@ -100,70 +123,53 @@ contract NftCollection {
     }
 }
 
+
+// =========================================================
+// ✅ Simplified NFT item (TIP-4.2-compatible)
+// =========================================================
+
 contract NftItemSimple {
     collectionAddress: Address;
-    itemIndex: Int; 
+    itemIndex: Int;
     isInitialized: Bool;
+    authority_address: Address?;
 
     owner: Address?;
     individualContent: Cell?;
 
-    init(collection_address: Address, item_index: Int){
-        require(sender() == collection_address, "not from collection");
+    init(collection_address: Address, item_index: Int, authority_address: Address) {
+        require(sender() == collection_address, "Not from collection");
         self.collectionAddress = collection_address;
         self.itemIndex = item_index;
         self.isInitialized = false;
+        self.authority_address = authority_address;
     }
 
     receive(msg: Transfer){
-        let ctx: Context = context(); // Reference: https://docs.tact-lang.org/language/ref/common#context
+        let ctx: Context = context(); 
         let msgValue: Int = self.msgValue(ctx.value);
         
-        if (self.isInitialized == false) {  // Initial Transfer, aka the "Minting" of the NFT
-            require(ctx.sender == self.collectionAddress, "initialized tx need from collection");
+        if (self.isInitialized == false) { 
+            require(ctx.sender == self.collectionAddress, "Initialized tx need from collection");
             self.isInitialized = true;
             self.owner = msg.new_owner;
             self.individualContent = msg.custom_payload;
-            send(SendParameters{
-                to: msg.response_destination!!,
-                value: msgValue,
-                mode: SendPayGasSeparately,
-                body: Excesses { query_id: msg.query_id }.toCell()
-            });
-        } else {
-            require(ctx.sender == self.owner!!, "not owner");
-            self.owner = msg.new_owner;  // change current owner to the new_owner
-            if (msg.forward_amount > 0) {
-                send(SendParameters{
+            if (msgValue > 0) {
+                    send(SendParameters{
                     to: msg.new_owner,
-                    value: msg.forward_amount,
-                    mode:  SendPayGasSeparately, 
-                    bounce: true,
-                    body: OwnershipAssigned{
-                        query_id: msg.query_id,
-                        prev_owner: ctx.sender,
-                        forward_payload: msg.forward_payload
-                    }.toCell()
-                }); 
-            }
-
-            msgValue -= ctx.readForwardFee(); 
-            if (msg.response_destination != null) { 
-                send(SendParameters{ 
-                    to: msg.response_destination!!,
-                    value: msgValue - msg.forward_amount,
+                    value: msgValue,
                     mode: SendPayGasSeparately,
-                    bounce: true,
                     body: Excesses { query_id: msg.query_id }.toCell()
                 });
-            } 
+            }
+        } else {
+            require(false, "SBT cannot be transferred");
         }
     }
-    
+
     receive(msg: GetStaticData){ 
-        let ctx: Context = context();
         send(SendParameters {
-            to: ctx.sender,
+            to: sender(),
             value: 0,
             mode: 64,  // (return msg amount except gas fees) 
             bounce: true,
@@ -181,7 +187,6 @@ contract NftItemSimple {
         return value - (storageFee + gasConsumption);
     }
 
-    // --------- Get Function  --------- //
     get fun get_nft_data(): GetNftData {
         let b: StringBuilder = beginString();
         let collectionData: String = (self.individualContent!!).asSlice().asString();
@@ -190,13 +195,15 @@ contract NftItemSimple {
         b.append(".json");
 
         return GetNftData {
-            is_initialized: self.isInitialized, 
-            index: self.itemIndex, 
-            collection_address: self.collectionAddress, 
+            is_initialized: self.isInitialized,
+            index: self.itemIndex,
+            collection_address: self.collectionAddress,
             owner_address: self.owner!!,
-            individual_content: self.individualContent!! 
+            individual_content: b.toCell()
         };
-        //b.toCell()
-
+    }
+    
+    get fun get_authority_address(): Address? {
+        return self.authority_address;
     }
 }
