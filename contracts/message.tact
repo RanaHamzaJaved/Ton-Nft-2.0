@@ -1,16 +1,21 @@
-message LogEventMintRecord {
+message(0x04) LogEventMintRecord {
     minter: Address;
     item_id: Int;
     generate_number: Int;
 }
 
-struct MintNft {
-    meta_link: String;
+message(0x05) Deploy {
+    queryId: Int as uint64;
 }
 
+message(0x01) Mint{
+}
+
+message (0x02)Withdraw {
+}
 
 message(0x693d3950) GetRoyaltyParams {
-    query_id: Int as uint64;
+    queryId: Int as uint64;
 }
 message(0xa8cb00ad) ReportRoyaltyParams {
     query_id: Int as uint64;
@@ -59,3 +64,40 @@ struct GetNftData {
     owner_address: Address;
     individual_content: Cell;
 }
+
+message(0x51e3b1e5) ProveOwnership {
+    query_id: Int as uint64;
+    dest: Address;
+    forward_payload: Slice;
+    with_content: Bool;
+}
+
+message(0x3b3f6fcb) OwnershipProof {
+    query_id: Int as uint64;
+    item_id: Int;
+    owner: Address;
+    data: Slice;
+    revoked_at: Int as uint64;
+    content: Cell?;
+}
+
+message(0x6a69df03) RequestOwner {
+    query_id: Int as uint64;
+    dest: Address;
+    forward_payload: Slice;
+    with_content: Bool;
+}
+
+message(0x5fcb6e07) OwnerInfo {
+    query_id: Int as uint64;
+    item_id: Int;
+    initiator: Address;
+    owner: Address;
+    data: Slice;
+    revoked_at: Int as uint64;
+    content: Cell?;
+}
+
+message(0x6efc5fd7) Revoke {}
+
+message(0x03)Destroy{}

@@ -16,7 +16,7 @@ export async function run(provider: NetworkProvider) {
         ownerAddress: collectionData.owner_address.toString(),
         collectionContent: collectionData.collection_content.toString(),
     });
-    console.log("getGetNftMintTotalCost ", await collection.getGetNftMintTotalCost());
+    console.log("getEstimateMintCost ", await collection.getEstimateMintCost());
     console.log("\n🎨 NFT Addresses:");
     for (let i = 0; i < Number(collectionData.next_item_index); i++) {
         try {

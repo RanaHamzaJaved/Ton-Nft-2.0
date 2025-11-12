@@ -28,13 +28,8 @@ export async function run(provider: NetworkProvider) {
     console.log("⏳ Deploying collection...");
     await nftCollection.send(
         provider.sender(),
-        {
-            value : toNano("0.05")
-        },
-        {
-            $$type: "Deploy",
-            queryId: 0n,
-        }
+        { value: toNano("0.05") },
+        { $$type: "Deploy", queryId: 0n }
     );
 
     await provider.waitForDeploy(nftCollection.address);
@@ -43,12 +38,16 @@ export async function run(provider: NetworkProvider) {
 
     // ✅ 5. Mint NFTs
     async function mintNFT(index: number) {
-        await nftCollection.send(provider.sender(), { value: toNano("0.07") }, "Mint");
+        await nftCollection.send(
+            provider.sender(),
+            { value: toNano("0.08") },
+            { $$type: "Mint" }
+        );
         console.log(`✅ Minted NFT #${index}`);
     }
 
     // Mint 1–3 NFTs
-    for (let i = 1; i <= 3; i++) {
+    for (let i = 1; i <= 2; i++) {
         await mintNFT(i);
     }
 }
