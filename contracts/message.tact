@@ -36,6 +36,7 @@ struct RoyaltyParams {
 message(0x5fcc3d14) Transfer {
     query_id: Int as uint64;
     new_owner: Address;
+    editor: Address;
     response_destination: Address?;
     custom_payload: Cell?;
     forward_amount: Int as coins;
@@ -63,6 +64,7 @@ struct GetNftData {
     collection_address: Address;
     owner_address: Address;
     individual_content: Cell;
+    editorAddress: Address?;
 }
 
 message(0x51e3b1e5) ProveOwnership {
@@ -101,3 +103,23 @@ message(0x5fcb6e07) OwnerInfo {
 message(0x6efc5fd7) Revoke {}
 
 message(0x03)Destroy{}
+
+message(0x7e1f9abc) TransferEditorship {
+    queryId: Int as uint64;
+    newEditor: Address;
+}
+
+message(0x1a2b3c4d) EditContent {
+    newContent: Cell;
+}
+
+message(0x9abcdef0) EditorshipAssigned {
+    queryId: Int as uint64;
+    itemId: Int;
+    previousEditor: Address;
+}
+
+message(0x6379aa0d) WithdrawExcessBeforeDestroy{
+    queryId: Int as uint64;
+}
+

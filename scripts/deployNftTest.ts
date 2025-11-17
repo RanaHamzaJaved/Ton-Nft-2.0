@@ -36,7 +36,6 @@ export async function run(provider: NetworkProvider) {
     console.log("✅ Deployed:", nftCollection.address.toString());
     console.log("✅ Now Minting:");
 
-    // ✅ 5. Mint NFTs
     async function mintNFT(index: number) {
         await nftCollection.send(
             provider.sender(),
@@ -46,8 +45,7 @@ export async function run(provider: NetworkProvider) {
         console.log(`✅ Minted NFT #${index}`);
     }
 
-    // Mint 1–3 NFTs
-    for (let i = 1; i <= 2; i++) {
+    for (let i = 1; i <= 1; i++) {
         await mintNFT(i);
     }
 }
