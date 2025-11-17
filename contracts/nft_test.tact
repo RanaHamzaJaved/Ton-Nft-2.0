@@ -22,12 +22,12 @@ contract NftCollection {
     receive(msg: Deploy) {
     }
 
-    receive(msg: Mint) {
+    receive("Mint"){
         let ctx: Context = context();
         require(ctx.sender == self.ownerAddress, "Only owner can mint");
 
         let msgValue: Int = ctx.value;
-        let totalCost: Int = self.estimateMintCost();
+        let totalCost: Int = self.get_nft_mint_total_cost();
         require(msgValue >= totalCost, "Insufficient funds for minting");
 
         let tonBalanceBeforeMsg: Int = myBalance() - msgValue;
@@ -92,7 +92,7 @@ contract NftCollection {
             mode: 64, 
             bounce: false,
             body: ReportRoyaltyParams {
-                query_id: msg.queryId,
+                query_id: msg.query_id,
                 numerator:  (self.royaltyParams!!).numerator,
                 denominator: (self.royaltyParams!!).denominator,
                 destination: self.ownerAddress
@@ -100,7 +100,7 @@ contract NftCollection {
         });        
     }
 
-    get fun estimateMintCost(): Int {
+    get fun get_nft_mint_total_cost(): Int {
         return (minTonsForStorage + gasConsumption + self.nftPrice);
     }
 
@@ -147,12 +147,11 @@ contract NftItemSimple {
     owner: Address?;
     editor: Address?;
     collectionAddress: Address;
-    authorityAddress: Address?;
+    authority_address: Address?;
 
     itemIndex: Int;
     revokedAt: Int as uint64 = 0;
     isInitialized: Bool;
-
     individualContent: Cell?;
 
     init(collection_address: Address, item_index: Int, authority_address: Address) {
@@ -160,8 +159,8 @@ contract NftItemSimple {
         self.collectionAddress = collection_address;
         self.itemIndex = item_index;
         self.isInitialized = false;
-        self.authorityAddress = authority_address;
         self.editor = null;
+        self.authority_address = authority_address;
     }
 
     receive(msg: Transfer){
@@ -252,7 +251,7 @@ contract NftItemSimple {
             }.toCell()
         });
     }
-
+    
     receive(msg: ProveOwnership) {
         require(sender() == self.owner, "Not owner");
         send(SendParameters{
@@ -292,7 +291,7 @@ contract NftItemSimple {
 
         self.owner = null;
         self.editor = null;
-        self.authorityAddress = null;
+        self.authority_address = null;
         self.revokedAt = 0;
 
         let excess: Int = myBalance() - context().value - minTonsForStorage;
@@ -320,7 +319,7 @@ contract NftItemSimple {
     }
 
     receive(msg: Revoke) {
-        require(sender() == self.authorityAddress, "Not authorized");
+        require(sender() == self.authority_address, "Not authorized");
         require(self.revokedAt == 0, "Already revoked");
         self.revokedAt = now();
     }
@@ -350,7 +349,7 @@ contract NftItemSimple {
     }
     
     get fun get_authority_address(): Address? {
-        return self.authorityAddress;
+        return self.authority_address;
     }
 
     get fun get_editor_address(): Address? {

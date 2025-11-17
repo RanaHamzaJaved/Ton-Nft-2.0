@@ -4,6 +4,10 @@ message(0x04) LogEventMintRecord {
     generate_number: Int;
 }
 
+struct MintNft {
+    meta_link: String;
+}
+
 message(0x05) Deploy {
     queryId: Int as uint64;
 }
@@ -15,7 +19,7 @@ message (0x02)Withdraw {
 }
 
 message(0x693d3950) GetRoyaltyParams {
-    queryId: Int as uint64;
+    query_id: Int as uint64;
 }
 message(0xa8cb00ad) ReportRoyaltyParams {
     query_id: Int as uint64;

@@ -6,7 +6,7 @@ export async function run(provider: NetworkProvider) {
     const OFFCHAIN_CONTENT_PREFIX = 0x01;
 
     const baseCollectionURL =
-        "https://ipfs.io/ipfs/bafybeiaqu7ty4csqhetr2livg7qzlc4faigho3e3fn4juw4mk2ciuxsjz4/";
+        "https://ipfs.io/ipfs/bafybeif37plzw6s25tbyspzkspq7orjt4uymi2nke5tory7wwpngb2hrwe/";
     const collectionContent = beginCell()
         .storeInt(OFFCHAIN_CONTENT_PREFIX, 8)
         .storeStringRefTail(baseCollectionURL)
@@ -22,14 +22,19 @@ export async function run(provider: NetworkProvider) {
     };
 
     const nftCollection = provider.open(
-        await NftCollection.fromInit(owner, collectionContent, royaltyParams, 0n, toNano("0.001"))
+        await NftCollection.fromInit(owner, collectionContent, royaltyParams, 1n, toNano("0.001"))
     );
 
     console.log("⏳ Deploying collection...");
     await nftCollection.send(
         provider.sender(),
-        { value: toNano("0.05") },
-        { $$type: "Deploy", queryId: 0n }
+        {
+            value : toNano("0.05")
+        },
+        {
+            $$type: "Deploy",
+            queryId: 0n,
+        }
     );
 
     await provider.waitForDeploy(nftCollection.address);
@@ -37,11 +42,7 @@ export async function run(provider: NetworkProvider) {
     console.log("✅ Now Minting:");
 
     async function mintNFT(index: number) {
-        await nftCollection.send(
-            provider.sender(),
-            { value: toNano("0.08") },
-            { $$type: "Mint" }
-        );
+        await nftCollection.send(provider.sender(), { value: toNano("0.08") }, "Mint");
         console.log(`✅ Minted NFT #${index}`);
     }
 
