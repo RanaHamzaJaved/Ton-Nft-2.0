@@ -158,8 +158,10 @@ message(0x174ae5d6) DeployCollection {
     deploy_value: Int;
     totalEditions: Int;
     reservedEditions: Int;
+}
 
-
+message EditDeployCost{
+    newDeploymentCost: Int;
 }
 
 message(0x9416b783) ReportDeployment {

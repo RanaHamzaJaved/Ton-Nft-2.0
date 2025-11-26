@@ -19,8 +19,17 @@ contract NftFactory {
         self.owner = msg.new_owner;
     }
 
+    get fun getOwner(): Address {
+        return self.owner;
+    }
+
     receive(msg: DeployCollection) {
         require(sender() == self.owner, "Only factory owner can deploy");
+        require(msg.totalEditions > 0, "Total editions must be > 0");
+        require(msg.reservedEditions >= 0, "Reserved editions >= 0");
+        require(msg.totalEditions >= msg.reservedEditions, "Reserved >= Total");
+        require(msg.nft_price >= 0, "Invalid price");
+        require(msg.nextItemIndex >= 0, "nextItemIndex invalid");
 
         let ctx: Context = context();
 
@@ -93,6 +102,10 @@ contract NftFactory {
         return self.lastDeployedIndex;
     }
 
+    get fun getCollectionByIndex(index: Int): Address? {
+        return self.collections.get(index);
+    }
+
 }
 
 contract NftCollection {
@@ -106,6 +119,8 @@ contract NftCollection {
     totalEditions: Int;
     reservedEditions: Int;
     reservedMinted: Int;
+    deploymentFee: Int;
+
 
     init(owner_address: Address, collection_content: Cell, royalty_params: RoyaltyParams?, nextItemIndex: Int, nft_price: Int, index: Int, totalEditions: Int, reservedEditions: Int) {
         self.ownerAddress = owner_address;
@@ -117,6 +132,7 @@ contract NftCollection {
         self.reservedEditions = reservedEditions;
         self.uniqueIndex = index;
         self.reservedMinted = 0;
+        self.deploymentFee = 50_000_000;
         if (royalty_params != null) {
             require(royalty_params!!.denominator > 0, "royalty denominator must be > 0");
             require(royalty_params!!.numerator >= 0, "royalty numerator >= 0");
@@ -152,6 +168,7 @@ contract NftCollection {
 
     receive("MintReserved"){
         require(sender() == self.ownerAddress, "Only owner can mint reserved");
+        require(self.nextItemIndex < self.totalEditions, "All NFTs minted");
         require(self.reservedMinted < self.reservedEditions, "All reserved NFTs minted");
 
         let ctx: Context = context();
@@ -161,9 +178,20 @@ contract NftCollection {
         msgValue = self.computeMintFee(msgValue);
         let currentIndex: Int = self.nextItemIndex;
 
+        let amountNeeded = minTonsForStorage + self.deploymentFee;
+        let extra: Int = msgValue - amountNeeded;
+
         //Calling mint to deploy Nft contract and transfer ownership to buyer
-        self.mint(self.ownerAddress, msgValue);
+        self.mint(self.ownerAddress, amountNeeded);
         self.reservedMinted += 1;
+
+        if (extra > 0) {
+            send(SendParameters{
+                to: sender(),
+                value: extra,
+                mode: SendIgnoreErrors
+            });
+        }
 
         emit(LogEventMintRecord{ minter: sender(), item_id: currentIndex, generate_number: nativeRandom() }.toCell());
     }
@@ -204,9 +232,15 @@ contract NftCollection {
             to: self.ownerAddress,
             value: self.nftPrice,
             bounce: false,
-            mode: SendIgnoreErrors,
+            mode: SendRemainingValue | SendIgnoreErrors,
             body: "NFT Sale".asComment()
         });
+    }
+
+    receive(msg: EditDeployCost) {
+        require(sender() == self.ownerAddress, "Only owner is allowed");
+        require(msg.newDeploymentCost > 0, "Deployment cost must be greater than 0");
+        self.deploymentFee = msg.newDeploymentCost;
     }
 
     receive(msg: Withdraw) {
