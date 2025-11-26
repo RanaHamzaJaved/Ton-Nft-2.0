@@ -42,6 +42,7 @@ message(0x5fcc3d14) Transfer {
     new_owner: Address;
     editor: Address;
     response_destination: Address?;
+    royalty_params: RoyaltyParams;
     custom_payload: Cell?;
     forward_amount: Int as coins;
     forward_payload: Slice as remaining;
@@ -117,6 +118,24 @@ message(0x1a2b3c4d) EditContent {
     newContent: Cell;
 }
 
+message(0x501edecd) ReportEditor{
+    queryId: Int as uint64;
+    editor: Address?;
+}
+
+message(0x351f6fd3) GetIndex {
+    queryId: Int as uint64;
+}
+
+message(0xa4a37580) ReportIndex {
+    queryId: Int as uint64;
+    index: Int;
+}
+
+message(0x2f7cb721) GetEditor {
+    queryId: Int as uint64;
+}
+
 message(0x9abcdef0) EditorshipAssigned {
     queryId: Int as uint64;
     itemId: Int;
@@ -127,3 +146,27 @@ message(0x6379aa0d) WithdrawExcessBeforeDestroy{
     queryId: Int as uint64;
 }
 
+message(0x174ae5d6) DeployCollection {
+    owner_address: Address;
+    collection_content: Cell;
+    royalty_params: RoyaltyParams?;
+    nextItemIndex: Int;
+    nft_price: Int;
+
+    // amount of value (in nanograms) to send to the newly created collection
+    // Caller should provide at least enough to cover storage & gas (checked below)
+    deploy_value: Int;
+    totalEditions: Int;
+    reservedEditions: Int;
+
+
+}
+
+message(0x9416b783) ReportDeployment {
+    query_id: Int;
+    collection_address: Address;
+}
+
+message ChangeOwner{
+    new_owner: Address;
+}

@@ -6,7 +6,7 @@ export async function run(provider: NetworkProvider) {
     const OFFCHAIN_CONTENT_PREFIX = 0x01;
 
     const baseCollectionURL =
-        "https://ipfs.io/ipfs/bafybeif37plzw6s25tbyspzkspq7orjt4uymi2nke5tory7wwpngb2hrwe/";
+        "https://ipfs.io/ipfs/bafybeic43zx3ondseawdkifbg4hdjkcvqtxtricq7yq43tc22745yf74pu/";
     const collectionContent = beginCell()
         .storeInt(OFFCHAIN_CONTENT_PREFIX, 8)
         .storeStringRefTail(baseCollectionURL)
@@ -22,7 +22,7 @@ export async function run(provider: NetworkProvider) {
     };
 
     const nftCollection = provider.open(
-        await NftCollection.fromInit(owner, collectionContent, royaltyParams, 1n, toNano("0.001"))
+        await NftCollection.fromInit(owner, collectionContent, royaltyParams, 0n, toNano("0.001"), 0n, 100n, 10n)
     );
 
     console.log("⏳ Deploying collection...");
@@ -46,7 +46,7 @@ export async function run(provider: NetworkProvider) {
         console.log(`✅ Minted NFT #${index}`);
     }
 
-    for (let i = 1; i <= 1; i++) {
-        await mintNFT(i);
-    }
+    // for (let i = 1; i <= 1; i++) {
+        await mintNFT(1);
+    // }
 }

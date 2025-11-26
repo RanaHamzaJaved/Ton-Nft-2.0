@@ -7,7 +7,7 @@ export async function run(provider: NetworkProvider) {
     // ------------------------------
     // 1️⃣ Connect to deployed collection
     // ------------------------------
-    const collectionAddress = Address.parse("EQBdxhd5i0ZrDkpanRypsusESwWaKhq_d8Qv0LJZ1h2kbOjy");
+    const collectionAddress = Address.parse("kQDtZbTJHpY9mUXVe-Eh4vFy9MAw7bhb58tXeo-KM75fe7Ra");
     const nftCollection = provider.open(NftCollection.fromAddress(collectionAddress));
 
     const owner = provider.sender();

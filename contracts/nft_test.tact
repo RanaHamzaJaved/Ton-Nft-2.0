@@ -2,63 +2,170 @@ import "./message.tact";
 const minTonsForStorage: Int = ton("0.04");
 const gasConsumption: Int = ton("0.03");
 
+contract NftFactory {
+    owner: Address;
+    lastDeployedIndex: Int = 0;
+    collections: map<Int, Address>;
+
+    init(owner_address: Address) {
+        self.owner = owner_address;
+    }
+
+    receive(msg: Deploy) {
+    }
+
+    receive(msg: ChangeOwner) {
+        require(sender() == self.owner, "Only owner");
+        self.owner = msg.new_owner;
+    }
+
+    receive(msg: DeployCollection) {
+        require(sender() == self.owner, "Only factory owner can deploy");
+
+        let ctx: Context = context();
+
+        require(msg.deploy_value >= (minTonsForStorage + gasConsumption), "deploy_value too small");
+        let idx = self.lastDeployedIndex;
+        self.lastDeployedIndex += 1;
+
+        let stateInit: StateInit = initOf NftCollection(
+            msg.owner_address,
+            msg.collection_content,
+            msg.royalty_params,
+            msg.nextItemIndex,
+            msg.nft_price,
+            idx,
+            msg.totalEditions,
+            msg.reservedEditions
+        );
+
+        let newAddr: Address = contractAddress(stateInit);
+        self.collections.set(idx, newAddr);
+
+        // deploy by sending the StateInit and initial funds to the computed address
+        send(SendParameters{
+            to: newAddr,
+            value: msg.deploy_value,
+            bounce: true,
+            mode: 0, // don't revert factory if something odd happens
+            body: "Factory deployment".asComment(),
+            code: stateInit.code,
+            data: stateInit.data
+        });
+
+        // reply back to caller with the deployed address (report)
+        send(SendParameters{
+            to: ctx.sender,
+            value: 0,
+            mode: 64, // reply-only mode
+            bounce: false,
+            body: ReportDeployment {
+                query_id: 0,
+                collection_address: newAddr
+            }.toCell()
+        });
+    }
+
+    get fun getNextCollectionAddress(nextItemIndex: Int, owner_address: Address, collection_content: Cell, royalty_params: RoyaltyParams?, nft_price: Int, totalEditions: Int, reservedEditions: Int): Address {
+        let st = initOf NftCollection(
+            owner_address,
+            collection_content,
+            royalty_params,
+            nextItemIndex,
+            nft_price,
+            self.lastDeployedIndex,
+            totalEditions,
+            reservedEditions
+        );
+        return contractAddress(st);
+    }
+
+    get fun getLastCollection(): Address {
+        require(self.lastDeployedIndex > 0, "No collections deployed yet");
+        
+        let maybeAddr = self.collections.get(self.lastDeployedIndex - 1);
+        require(maybeAddr != null, "Collection not found");
+
+        return maybeAddr!!;
+    }
+
+    get fun getCurrentIndex(): Int {
+        return self.lastDeployedIndex;
+    }
+
+}
+
 contract NftCollection {
     nextItemIndex: Int;
     ownerAddress: Address;
     royaltyParams: RoyaltyParams?;
     collectionContent: Cell;
     nftPrice: Int;
+    uniqueIndex: Int;
     authorityAddress: Address;
+    totalEditions: Int;
+    reservedEditions: Int;
+    reservedMinted: Int;
 
-    init(owner_address: Address, collection_content: Cell, royalty_params: RoyaltyParams?, nextItemIndex: Int, nft_price: Int) {
+    init(owner_address: Address, collection_content: Cell, royalty_params: RoyaltyParams?, nextItemIndex: Int, nft_price: Int, index: Int, totalEditions: Int, reservedEditions: Int) {
         self.ownerAddress = owner_address;
         self.collectionContent = collection_content;
-        self.royaltyParams = royalty_params;
         self.nextItemIndex = nextItemIndex;
         self.nftPrice = nft_price;  
         self.authorityAddress = owner_address;
+        self.totalEditions = totalEditions;
+        self.reservedEditions = reservedEditions;
+        self.uniqueIndex = index;
+        self.reservedMinted = 0;
+        if (royalty_params != null) {
+            require(royalty_params!!.denominator > 0, "royalty denominator must be > 0");
+            require(royalty_params!!.numerator >= 0, "royalty numerator >= 0");
+            require(royalty_params!!.numerator <= royalty_params!!.denominator, "royalty <= 100%");
+            self.royaltyParams = royalty_params;
+        }
+        
     }
 
     receive(msg: Deploy) {
     }
 
     receive("Mint"){
-        let ctx: Context = context();
-        require(ctx.sender == self.ownerAddress, "Only owner can mint");
+        require(self.nextItemIndex < (self.totalEditions - self.reservedEditions), "Sold out"); 
 
+        let ctx: Context = context();
         let msgValue: Int = ctx.value;
         let totalCost: Int = self.get_nft_mint_total_cost();
         require(msgValue >= totalCost, "Insufficient funds for minting");
 
-        let tonBalanceBeforeMsg: Int = myBalance() - msgValue;
-        let storageFee: Int = max(0, minTonsForStorage - min(tonBalanceBeforeMsg, minTonsForStorage));
-        msgValue -= storageFee + gasConsumption + self.nftPrice;
+        msgValue = self.computeMintFee(msgValue);
+        msgValue -= self.nftPrice;
+        let currentIndex: Int = self.nextItemIndex;
 
-        if (self.nftPrice > 0) {
-            send(SendParameters{
-                to: self.ownerAddress,
-                value: self.nftPrice,
-                bounce: false,
-                mode: SendIgnoreErrors,
-                body: "NFT Sale".asComment()
-            });
-        }
-
+        //Calling mint to deploy Nft contract and transfer ownership to buyer
         self.mint(ctx.sender, msgValue);
 
-        emit(LogEventMintRecord{ minter: sender(), item_id: self.nextItemIndex - 1, generate_number: nativeRandom() }.toCell());
+        //Distributing nft price automatically to the owner
+        self.distributeNftPayment();
+
+        emit(LogEventMintRecord{ minter: sender(), item_id: currentIndex, generate_number: nativeRandom() }.toCell());
     }
 
-    receive(msg: Withdraw) {
-        require(sender() == self.ownerAddress, "Only owner can withdraw");
-        let withdrawAmount: Int = myBalance() - context().value - minTonsForStorage;
-        require(withdrawAmount > 0, "No TON to withdraw");
-        send(SendParameters{
-            to: sender(),
-            bounce: true,
-            value: withdrawAmount,
-            mode: SendRemainingValue + SendIgnoreErrors
-        });
+    receive("MintReserved"){
+        require(sender() == self.ownerAddress, "Only owner can mint reserved");
+        require(self.reservedMinted < self.reservedEditions, "All reserved NFTs minted");
+
+        let ctx: Context = context();
+        let msgValue: Int = ctx.value;
+        require(msgValue >= minTonsForStorage + gasConsumption, "Insufficient funds for minting");
+
+        msgValue = self.computeMintFee(msgValue);
+        let currentIndex: Int = self.nextItemIndex;
+
+        //Calling mint to deploy Nft contract and transfer ownership to buyer
+        self.mint(self.ownerAddress, msgValue);
+        self.reservedMinted += 1;
+
+        emit(LogEventMintRecord{ minter: sender(), item_id: currentIndex, generate_number: nativeRandom() }.toCell());
     }
 
     inline fun mint(sender: Address, msgValue: Int) {
@@ -74,6 +181,7 @@ contract NftCollection {
                 new_owner: sender,
                 editor: sender,
                 response_destination: self.ownerAddress,
+                royalty_params: self.royalty_params(),
                 custom_payload: self.collectionContent,
                 forward_amount: 0,
                 forward_payload: emptySlice()
@@ -84,8 +192,38 @@ contract NftCollection {
         self.nextItemIndex += 1;
     }
 
+    fun computeMintFee(msgValue: Int): Int {
+        let tonBalanceBeforeMsg = myBalance() - msgValue;
+        let storageFee = max(0, minTonsForStorage - min(tonBalanceBeforeMsg, minTonsForStorage));
+        return msgValue - storageFee - gasConsumption;
+    }
+
+    inline fun distributeNftPayment(){
+        require(self.nftPrice > 0, "Nft price should be greater than zero");
+        send(SendParameters{
+            to: self.ownerAddress,
+            value: self.nftPrice,
+            bounce: false,
+            mode: SendIgnoreErrors,
+            body: "NFT Sale".asComment()
+        });
+    }
+
+    receive(msg: Withdraw) {
+        require(sender() == self.ownerAddress, "Only owner can withdraw");
+        let withdrawAmount: Int = myBalance() - context().value - minTonsForStorage;
+        require(withdrawAmount > 0, "No TON to withdraw");
+        send(SendParameters{
+            to: sender(),
+            bounce: true,
+            value: withdrawAmount,
+            mode: SendRemainingValue + SendIgnoreErrors
+        });
+    }
+
     receive(msg: GetRoyaltyParams) {   
         let ctx: Context = context();
+        let r: RoyaltyParams = self.royalty_params();
         send(SendParameters{
             to: ctx.sender,
             value: 0,
@@ -93,9 +231,9 @@ contract NftCollection {
             bounce: false,
             body: ReportRoyaltyParams {
                 query_id: msg.query_id,
-                numerator:  (self.royaltyParams!!).numerator,
-                denominator: (self.royaltyParams!!).denominator,
-                destination: self.ownerAddress
+                numerator:  r.numerator,
+                denominator: r.denominator,
+                destination: r.destination
             }.toCell()
         });        
     }
@@ -133,7 +271,11 @@ contract NftCollection {
     }
 
     get fun royalty_params(): RoyaltyParams {
-        return self.royaltyParams!!;
+        if (self.royaltyParams != null) {
+            return self.royaltyParams!!;
+        } else {
+            return RoyaltyParams{ numerator: 0, denominator: 1, destination: self.ownerAddress };
+        }    
     }
 }
 
@@ -148,6 +290,7 @@ contract NftItemSimple {
     editor: Address?;
     collectionAddress: Address;
     authority_address: Address?;
+    royaltyParams: RoyaltyParams?;
 
     itemIndex: Int;
     revokedAt: Int as uint64 = 0;
@@ -174,21 +317,32 @@ contract NftItemSimple {
             self.owner = msg.new_owner;
             self.individualContent = msg.custom_payload;
             self.editor = msg.editor;
-            if (msgValue > 0) {
-                    send(SendParameters{
-                    to: msg.new_owner,
-                    value: msgValue,
-                    mode: SendPayGasSeparately,
-                    body: Excesses { query_id: msg.query_id }.toCell()
-                });
-            }
+            self.royaltyParams = msg.royalty_params;
+
         } else {
             require(ctx.sender == self.owner, "Only current owner can transfer");
             let prevOwner: Address = self.owner!!;
+            let valueToSend: Int = self.msgValue(ctx.value);
 
+            //Send royality to collection owner
+            if self.royaltyParams != null {
+                let r: RoyaltyParams = self.royaltyParams!!;
+                let royaltyAmount: Int = self.muldiv(valueToSend, r.numerator, r.denominator);
+                if (royaltyAmount > 0 && r.destination != prevOwner) {
+                    send(SendParameters{
+                        to: r.destination,
+                        value: royaltyAmount,
+                        bounce: false,
+                        mode: SendIgnoreErrors
+                    });
+                    valueToSend -= royaltyAmount;
+                }
+            }
+
+            //Assign ownership to new owner
             send(SendParameters{
                 to: msg.new_owner,
-                value: msgValue,
+                value: valueToSend,
                 mode: SendPayGasSeparately,
                 body: OwnershipAssigned {
                     query_id: msg.query_id,
@@ -196,19 +350,15 @@ contract NftItemSimple {
                     forward_payload: msg.forward_payload
                 }.toCell()
             });
-
             self.owner = msg.new_owner;
-            // self.editor = msg.new_owner; //should we let owner to transfer it forcefully or he can do it in other call 
 
-            let storageReserve: Int = minTonsForStorage;
-            let gasReserve: Int = gasConsumption;
-            let excess: Int = max(0, myBalance() - storageReserve - gasReserve);
-
+            //Transfer excess amount to previous owner while keeping safe amount inside
+            let excess: Int = max(0, myBalance() - ((minTonsForStorage * 2 )- gasConsumption));
             if (excess > 0) {
                 send(SendParameters{
                     to: prevOwner,
                     value: excess,
-                    mode: SendIgnoreErrors + SendRemainingValue,
+                    mode: SendIgnoreErrors,
                     bounce: false
                 });
             }
@@ -286,6 +436,32 @@ contract NftItemSimple {
         });
     }
 
+    receive(msg: GetEditor) {
+        send(SendParameters{
+            to: sender(),
+            value: 0,
+            mode: 64,
+            bounce: false,
+            body: ReportEditor{
+                queryId: msg.queryId,
+                editor: self.editor
+            }.toCell()
+        });
+    }
+
+    receive(msg: GetIndex) {
+        send(SendParameters{
+            to: sender(),
+            value: 0,
+            mode: 64,
+            bounce: false,
+            body: ReportIndex{
+                queryId: msg.queryId,
+                index: self.itemIndex
+            }.toCell()
+        });
+    }
+
     receive(msg:Destroy) {
         require(sender() == self.owner, "Not owner");
 
@@ -293,6 +469,8 @@ contract NftItemSimple {
         self.editor = null;
         self.authority_address = null;
         self.revokedAt = 0;
+        self.royaltyParams = null;
+        self.individualContent = null;
 
         let excess: Int = myBalance() - context().value - minTonsForStorage;
         if (excess > 0) {
@@ -324,13 +502,6 @@ contract NftItemSimple {
         self.revokedAt = now();
     }
 
-    inline fun msgValue(value: Int): Int {
-        let tonBalanceBeforeMsg: Int = myBalance() - value;
-        let storageFee: Int = minTonsForStorage - min(tonBalanceBeforeMsg, minTonsForStorage);
-        let roundingFee: Int = ton("0.005");
-        return max(0, value - (storageFee + gasConsumption + roundingFee));
-    }
-
     get fun get_nft_data(): GetNftData {
         let b: StringBuilder = beginString();
         let collectionData: String = (self.individualContent!!).asSlice().asString();
@@ -348,6 +519,26 @@ contract NftItemSimple {
         };
     }
     
+    get fun royalty_params(): RoyaltyParams {
+        if (self.royaltyParams != null) {
+            return self.royaltyParams!!;
+        } else {
+            return RoyaltyParams{ numerator: 0, denominator: 1, destination: self.collectionAddress  };
+        }
+    }
+
+    inline fun msgValue(value: Int): Int {
+        let tonBalanceBeforeMsg: Int = myBalance() - value;
+        let storageFee: Int = minTonsForStorage - min(tonBalanceBeforeMsg, minTonsForStorage);
+        let roundingFee: Int = ton("0.005");
+        return max(0, value - (storageFee + gasConsumption + roundingFee));
+    }
+
+    inline fun muldiv(a: Int, b: Int, c: Int): Int {
+        require(c != 0, "division by zero");
+        return (a * b) / c;
+    }
+
     get fun get_authority_address(): Address? {
         return self.authority_address;
     }
