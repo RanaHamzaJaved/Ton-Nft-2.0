@@ -1,18 +1,36 @@
 import { Address } from "@ton/core";
 import { NetworkProvider } from "@ton/blueprint";
 import { NftCollection } from "../build/NftTest/NftTest_NftCollection";
+import { NftFactory } from "../build/NftTest/NftTest_NftFactory";
 
 function cleanCollectionContent(hex: string) {
     hex = hex.replace(/^x\{/, "").replace(/\}$/, "");
     const buf = Buffer.from(hex, "hex");
     let str = buf.toString("utf8");
-    if (str.charCodeAt(0) < 32) str = str.slice(1); // strip prefix
+    if (str.charCodeAt(0) < 32) str = str.slice(1);
     return str;
 }
 
 export async function run(provider: NetworkProvider) {
     const collectionAddress = Address.parse("kQDtZbTJHpY9mUXVe-Eh4vFy9MAw7bhb58tXeo-KM75fe7Ra");
     const collection = provider.open(NftCollection.fromAddress(collectionAddress));
+
+    // -------------------------------
+    // 🔵 FACTORY SECTION
+    // -------------------------------
+    const factoryAddress = Address.parse("kQDsoE7L2Zgt5AKzCrSJ4DIVZBOQ-oh6QUXS3KmRzCiIY-kD");
+    const factory = provider.open(NftFactory.fromAddress(factoryAddress));
+
+    console.log("\n🏭 Fetching Factory Data...");
+
+    const currentIndex = await factory.getGetCurrentIndex();
+    console.log("Current Factory Index:", currentIndex.toString());
+
+    if (Number(currentIndex) > 0n) {
+        const lastCollectionAddr = await factory.getGetLastCollection();
+        console.log("Last Deployed Collection:", lastCollectionAddr.toString());
+    }
+
 
     console.log("🔍 Fetching collection data from:", collectionAddress.toString());
 

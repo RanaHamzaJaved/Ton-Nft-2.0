@@ -7,7 +7,7 @@ export async function run(provider: NetworkProvider) {
     const OFFCHAIN_CONTENT_PREFIX = 0x01;
 
     const factoryAddress = Address.parse(
-        "EQDsoE7L2Zgt5AKzCrSJ4DIVZBOQ-oh6QUXS3KmRzCiIY1KJ"
+        "EQBC31QHYNXE9e8PqE6KXdj8SU4HlSaRgIyDXl-stb39UGM9"
     );
 
     const factory = provider.open(NftFactory.fromAddress(factoryAddress));
@@ -60,7 +60,7 @@ export async function run(provider: NetworkProvider) {
 
     await factory.send(
         provider.sender(),
-        { value: toNano("0.25") },
+        { value: toNano("0.3") },
         {
             $$type: "DeployCollection",
             owner_address: owner,
