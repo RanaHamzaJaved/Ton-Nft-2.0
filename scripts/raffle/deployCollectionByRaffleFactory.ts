@@ -1,16 +1,16 @@
 import { toNano, beginCell, Address, contractAddress, StateInit  } from "@ton/core";
 import { NetworkProvider } from "@ton/blueprint";
-import { NftFactory } from "../build/NftTest/NftTest_NftFactory";
-import { NftCollection } from '../build/NftTest/NftTest_NftCollection';
+import { RaffleFactory } from "../../build/NftTest/NftTest_RaffleFactory";
+import { RaffleCollection } from '../../build/NftTest/NftTest_RaffleCollection';
 
 export async function run(provider: NetworkProvider) {
     const OFFCHAIN_CONTENT_PREFIX = 0x01;
 
     const factoryAddress = Address.parse(
-        "EQDBStK5zPXYxHeh4cNgWMYVlxionWkPhMAv2W3YoySDoJsV"
+        "EQB4k6wJq9Hb0D6n5Bk9AEe-mOStF6F2mixwGVF3za3XjMRO"
     );
 
-    const factory = provider.open(NftFactory.fromAddress(factoryAddress));
+    const factory = provider.open(RaffleFactory.fromAddress(factoryAddress));
 
     // -------------------------------
     // Collection off-chain metadata
@@ -27,31 +27,31 @@ export async function run(provider: NetworkProvider) {
 
     const royaltyParams = {
         $$type: "RoyaltyParams" as const,
-        numerator: 350n,
+        numerator: 150n,
         denominator: 1000n,
         destination: owner,
     };
 
-    const lastIndex: bigint = await factory.getGetCurrentIndex();
-    console.log("Last deployed index:", lastIndex.toString());
-    const nextIndex = lastIndex; 
+    // const lastIndex: bigint = await factory.getGetCurrentIndex();
+    // console.log("Last deployed index:", lastIndex.toString());
+    // const nextIndex = lastIndex; 
 
     // -------------------------------
     // Deploy Collection using Factory
     // -------------------------------
     console.log("⏳ Requesting deployment from factory...");
 
-    const deployValue = toNano("0.15"); // value forwarded to collection
+    const deployValue = toNano("0.3"); // value forwarded to collection
 
-    const st: StateInit = await NftCollection.init(
+    const st: StateInit = await RaffleCollection.init(
         owner,
         collectionContent,
         royaltyParams,
-        0n, // nextItemIndex
         toNano("0.001"),
-        nextIndex,
+        0n,
         100n,
-        10n
+        10n,
+        BigInt(Math.floor(Date.now() / 1000) + 3600)    
     );
 
     const addr = contractAddress(0, st);
@@ -60,17 +60,17 @@ export async function run(provider: NetworkProvider) {
 
     await factory.send(
         provider.sender(),
-        { value: toNano("0.3") },
+        { value: toNano("0.5") },
         {
-            $$type: "DeployCollection",
+            $$type: "DeployRaffleCollection",
             owner_address: owner,
             collection_content: collectionContent,
             royalty_params: royaltyParams,
-            nextItemIndex: 0n,
             nft_price: toNano("0.001"),
+            totalParticipants: 100n,
+            maxWinners: 10n,
+            endTime: BigInt(Math.floor(Date.now() / 1000) + 3600),
             deploy_value: deployValue,
-            totalEditions: 100n,
-            reservedEditions: 10n
         }
     );
 

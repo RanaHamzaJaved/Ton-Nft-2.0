@@ -4,6 +4,15 @@ message(0x04) LogEventMintRecord {
     generate_number: Int;
 }
 
+message(0x61300e88) LogRaffleEntry{
+    participant: Address;
+    amount: Int;
+}
+
+message LogRaffleWinners{
+    winners: map<Address, Bool>;
+}
+
 struct MintNft {
     meta_link: String;
 }
@@ -37,6 +46,18 @@ struct RoyaltyParams {
     denominator: Int;
     destination: Address;
 }
+
+message(0x431e88b3) DeployRaffleCollection {
+    owner_address: Address;        
+    collection_content: Cell;       
+    royalty_params: RoyaltyParams?;         
+    nft_price: Int;                
+    totalParticipants: Int;         
+    maxWinners: Int;                
+    endTime: Int;                     
+    deploy_value: Int;          
+}
+
 message(0x5fcc3d14) Transfer {
     query_id: Int as uint64;
     new_owner: Address;
@@ -70,6 +91,10 @@ struct GetNftData {
     owner_address: Address;
     individual_content: Cell;
     editorAddress: Address?;
+}
+
+message(0x61f12cf1) AnnounceWinners {
+    seed: Cell;
 }
 
 message(0x51e3b1e5) ProveOwnership {

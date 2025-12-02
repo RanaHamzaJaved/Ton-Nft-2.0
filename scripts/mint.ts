@@ -3,7 +3,7 @@ import { NetworkProvider } from '@ton/blueprint';
 import { NftCollection } from '../build/NftTest/NftTest_NftCollection';
 
 export async function run(provider: NetworkProvider) {
-    const collectionAddress = Address.parse("0QCs9ZcTeqNeR16dwfCWQDab60raCdY3iOZLee_lXFdT0qnD");
+    const collectionAddress = Address.parse("EQDXyTILmid8gexv0juEt96kyjL22GdPWj4MFWSrPxr8ME7K");
     const nftCollection = provider.open(NftCollection.fromAddress(collectionAddress));
 
     await nftCollection.send(
