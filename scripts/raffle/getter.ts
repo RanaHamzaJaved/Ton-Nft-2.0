@@ -36,6 +36,13 @@ export async function run(provider: NetworkProvider) {
         console.log(addr.toString(), amount?.toString());  
     }  
 
+    console.log("\n🎉 Winners Nft Addresses:");  
+    for (const addr of raffleResult.winners.keys()) {  
+        const val = raffleResult.winners.get(addr);  
+        const nft = await raffle.getGetNftByWallet(addr)
+        console.log(addr.toString(), nft);  
+    }  
+
     // Collection content  
     const collectionData = await raffle.getGetCollectionData();  
     const collectionOwner = collectionData.owner_address.toString({ bounceable: false });  
