@@ -93,8 +93,13 @@ struct GetNftData {
     editorAddress: Address?;
 }
 
-message(0x61f12cf1) AnnounceWinners {
-    seed: Cell;
+// message(0x61f12cf1) AnnounceWinners {
+//     seed: Cell;
+// }
+
+struct RaffleResult {
+    winners: map<Address, Bool>;
+    losers: map<Address, Int>;
 }
 
 message(0x51e3b1e5) ProveOwnership {

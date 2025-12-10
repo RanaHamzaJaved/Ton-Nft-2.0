@@ -7,7 +7,7 @@ export async function run(provider: NetworkProvider) {
     const OFFCHAIN_CONTENT_PREFIX = 0x01;
 
     const factoryAddress = Address.parse(
-        "EQB4k6wJq9Hb0D6n5Bk9AEe-mOStF6F2mixwGVF3za3XjMRO"
+        "EQAWQCK5OyszeqLbcOqtf8hDY3eX9hr_3qwaF0md8YAIYCTS"
     );
 
     const factory = provider.open(RaffleFactory.fromAddress(factoryAddress));
@@ -51,7 +51,7 @@ export async function run(provider: NetworkProvider) {
         0n,
         100n,
         10n,
-        BigInt(Math.floor(Date.now() / 1000) + 3600)    
+        BigInt(Math.floor(Date.now() / 1000) + 600)    
     );
 
     const addr = contractAddress(0, st);
@@ -60,7 +60,7 @@ export async function run(provider: NetworkProvider) {
 
     await factory.send(
         provider.sender(),
-        { value: toNano("0.5") },
+        { value: toNano("1") },
         {
             $$type: "DeployRaffleCollection",
             owner_address: owner,
@@ -69,7 +69,7 @@ export async function run(provider: NetworkProvider) {
             nft_price: toNano("0.001"),
             totalParticipants: 100n,
             maxWinners: 10n,
-            endTime: BigInt(Math.floor(Date.now() / 1000) + 3600),
+            endTime: BigInt(Math.floor(Date.now() / 1000) + 600),
             deploy_value: deployValue,
         }
     );

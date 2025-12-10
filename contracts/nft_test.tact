@@ -31,9 +31,10 @@ contract NftFactory {
         require(sender() == self.owner, "Only factory owner can deploy");
         require(msg.totalEditions > 0, "Total editions must be > 0");
         require(msg.reservedEditions >= 0, "Reserved editions >= 0");
-        require(msg.totalEditions >= msg.reservedEditions, "Reserved >= Total");
+        require(msg.reservedEditions <= msg.totalEditions, "Reserved editions cannot exceed total editions");
         require(msg.nft_price >= 0, "Invalid price");
         require(msg.nextItemIndex >= 0, "nextItemIndex invalid");
+        require(self.lastDeployedIndex < 1_000_000_000, "Indexes reached out of range");
 
         let ctx: Context = context();
 
@@ -80,6 +81,7 @@ contract NftFactory {
     }
 
     get fun getNextCollectionAddress(nextItemIndex: Int, owner_address: Address, collection_content: Cell, royalty_params: RoyaltyParams?, nft_price: Int, totalEditions: Int, reservedEditions: Int): Address {
+        require(sender() == self.owner, "Only owner can compute");
         let st = initOf NftCollection(
             owner_address,
             collection_content,
@@ -180,6 +182,18 @@ contract RaffleFactory {
         require(self.lastDeployedIndex > 0, "No collections deployed yet");
         return self.collections.get(self.lastDeployedIndex - 1)!!;
     }
+
+    get fun getCurrentIndex(): Int {
+        return self.lastDeployedIndex;
+    }
+
+    get fun getOwnerAddress(): Address {
+        return self.owner;
+    }
+
+    get fun getCollectionByIndex(index: Int): Address? {
+        return self.collections.get(index);
+    }
 }
 
 // =========================================================
@@ -224,7 +238,7 @@ contract NftCollection {
     }
 
     receive("Mint"){
-        require(self.nextItemIndex < (self.totalEditions - self.reservedEditions), "Sold out"); 
+        require((self.nextItemIndex - self.reservedMinted) < (self.totalEditions - self.reservedEditions), "Sold out"); 
 
         let ctx: Context = context();
         let msgValue: Int = ctx.value;
@@ -310,7 +324,7 @@ contract NftCollection {
             to: self.ownerAddress,
             value: self.nftPrice,
             bounce: false,
-            mode: SendRemainingValue | SendIgnoreErrors,
+            mode: 0,
             body: "NFT Sale".asComment()
         });
     }
@@ -323,7 +337,8 @@ contract NftCollection {
 
     receive(msg: Withdraw) {
         require(sender() == self.ownerAddress, "Only owner can withdraw");
-        let withdrawAmount: Int = myBalance() - context().value - minTonsForStorage;
+        require(myBalance() > minTonsForStorage * 2, "Not enought ton to withdraw");
+        let withdrawAmount: Int = myBalance() - (minTonsForStorage * 2);
         require(withdrawAmount > 0, "No TON to withdraw");
         send(SendParameters{
             to: sender(),
@@ -375,6 +390,10 @@ contract NftCollection {
         return initOf NftItemSimple(myAddress(), item_index, self.authorityAddress);
     }
 
+    get fun getLastNftIndex(): Int {
+        return self.nextItemIndex - 1;
+    }
+
     get fun get_nft_content(index: Int, individual_content: Cell): Cell { 
         let b: StringBuilder = beginString();
         let ic: String = individual_content.asSlice().asString();
@@ -408,7 +427,10 @@ contract RaffleCollection {
     endTime: Int;
     entries: map<Address, Int>;
     participants: map<Int, Address>;
+    winnerNft: map<Address, Address>;
     nextItemIndex: Int = 0;
+    winnersAnnounced: Bool = false;
+
 
     init(owner_address: Address, collection_content: Cell, royalty_params: RoyaltyParams?, nft_price: Int, index: Int, totalParticipants: Int, maxWinners: Int, endTime: Int) {
         require(totalParticipants > 0, "Total Participant must be positive");
@@ -445,19 +467,23 @@ contract RaffleCollection {
         emit(LogRaffleEntry { participant: participant, amount: amount }.toCell());
     }
 
-    receive(msg: AnnounceWinners) {
+    receive("AnnounceWinners") {
         require(sender() == self.ownerAddress, "Only owner can announce winners");
+        require(!self.winnersAnnounced, "Winner announced already");
         require(now() >= self.endTime, "Raffle still active");
         require(self.participantCount > 0, "No participants in raffle");
-
         let winnerCount: Int = min(self.participantCount, self.maxWinners);
 
-        let seedSlice: Slice = msg.seed.beginParse();
-        let randomSeed: Int = seedSlice.loadInt(128);
+        let balance = myBalance();
+        let totalCost: Int = self.get_nft_mint_total_cost();
+        require(balance >= totalCost * winnerCount, "Insufficient funds for minting");
+
+        let randomSeed: Int = (now() + self.participantCount) & 0xffffffffffffffffffffffffffffffff;
+
         // Fisher-Yates shuffle
         let i: Int = self.participantCount - 1;
         while (i > 0) {
-            let j: Int = randomSeed % (i + 1);
+            let j = (randomSeed & 0xffffffffffffffff) % (i+1);
 
             let tmp = self.participants.get(i);
             self.participants.set(i, self.participants.get(j));
@@ -466,14 +492,9 @@ contract RaffleCollection {
             // Update seed for next iteration
             let seedCell: Cell = beginCell().storeInt(randomSeed, 128).endCell();
             let _seedSlice: Slice = seedCell.beginParse();
-            randomSeed = sha256(_seedSlice);
+            randomSeed = sha256(_seedSlice) & 0xffffffffffffffffffffffffffffffff;
             i -= 1;
         }
-
-        let ctx: Context = context();
-        let msgValue: Int = ctx.value;
-        let totalCost: Int = self.get_nft_mint_total_cost();
-        require(msgValue >= totalCost * winnerCount, "Insufficient funds for minting");
 
         let w: Int = 0;
         let winnersSet: map<Address, Bool> = emptyMap();  // track winners
@@ -481,26 +502,31 @@ contract RaffleCollection {
             let winner: Address? = self.participants.get(w);
             self.mint(winner, totalCost);
             winnersSet.set(winner!!, true);
+            let _ = self.entries.del(winner!!);
             w += 1;
         }
 
         // Refund losers only
-        foreach (participant, amount in self.entries) {
-            if (!winnersSet.exists(participant)) {
-                send(SendParameters{
-                    to: participant,
-                    value: amount,
-                    bounce: false,
-                    mode: SendIgnoreErrors
-                });
-            }
+        foreach (addr , amount in self.entries) {
+            send(SendParameters{
+                to: addr,
+                value: amount,
+                bounce: false,
+                mode: SendIgnoreErrors
+            });
         }
 
+        // clear entries after refunds
+        self.entries = emptyMap();
+        self.winnersAnnounced = true;
         // emit(LogRaffleWinners { winners: winnersSet }.toCell());
     }
 
     inline fun mint(to: Address?, msgValue: Int) {
         let nftInit: StateInit = initOf NftItemSimple(myAddress(), self.nextItemIndex, self.ownerAddress);
+        let nftAddress: Address = contractAddress(nftInit);
+        self.winnerNft.set(to!!, nftAddress);
+        
         send(SendParameters{
             to: contractAddress(nftInit),
             value: msgValue,
@@ -524,7 +550,9 @@ contract RaffleCollection {
 
     receive(msg: Withdraw) {
         require(sender() == self.ownerAddress, "Only owner can withdraw");
-        let withdrawAmount: Int = myBalance() - context().value - minTonsForStorage;
+        require(self.winnersAnnounced == true, "Cannot withdraw before raffle ends");
+
+        let withdrawAmount: Int = myBalance() - (minTonsForStorage * 2);
         require(withdrawAmount > 0, "No TON to withdraw");
         send(SendParameters{
             to: sender(),
@@ -549,6 +577,10 @@ contract RaffleCollection {
                 destination: r.destination
             }.toCell()
         });        
+    }
+
+    get fun get_nft_by_wallet(wallet: Address): Address? {
+        return self.winnerNft.get(wallet);
     }
 
     get fun get_nft_mint_total_cost(): Int {
@@ -590,6 +622,38 @@ contract RaffleCollection {
             return RoyaltyParams{ numerator: 0, denominator: 1, destination: self.ownerAddress };
         }    
     }
+
+    get fun get_end_time(): Int {
+        return self.endTime;
+    }
+
+    get fun get_winners_and_losers(): RaffleResult {
+        let winnersSet: map<Address, Bool> = emptyMap();
+        let losersSet: map<Address, Int> = emptyMap();
+
+        if (self.winnersAnnounced) {
+            let winnerCount: Int = min(self.participantCount, self.maxWinners);
+            let i: Int = 0;
+            while (i < winnerCount) {
+                let winner: Address? = self.participants.get(i);
+                if (winner != null) {
+                    winnersSet.set(winner!!, true);
+                }
+                i += 1;
+            }
+        }
+
+        // Remaining entries are losers
+        foreach (addr, amount in self.entries) {
+            losersSet.set(addr, amount);
+        }
+
+        return RaffleResult {
+            winners: winnersSet,
+            losers: losersSet
+        };
+    }
+
 }
 
 // =========================================================
@@ -636,8 +700,7 @@ contract NftItemSimple {
             let prevOwner: Address = self.owner!!;
             let valueToSend: Int = self.msgValue(ctx.value);
 
-            //Send royality to collection owner
-            if self.royaltyParams != null {
+            if (self.royaltyParams != null) {
                 let r: RoyaltyParams = self.royaltyParams!!;
                 let royaltyAmount: Int = self.muldiv(valueToSend, r.numerator, r.denominator);
                 if (royaltyAmount > 0 && r.destination != prevOwner) {

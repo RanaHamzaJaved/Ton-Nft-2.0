@@ -3,7 +3,7 @@ import { NetworkProvider } from '@ton/blueprint';
 import { RaffleCollection } from '../../build/NftTest/NftTest_RaffleCollection';
 
 export async function run(provider: NetworkProvider) {
-    const collectionAddress = Address.parse("EQDtRhuU8-1bnUis7OJoeM5RQVePl8ZtUoT1_E-vcdLhwWKg");
+    const collectionAddress = Address.parse("0QCIXm3uVoJHMPNpw7PVpOmE8TQ2sViM4ZPN5VYH_itQcJkN");
     const nftCollection = provider.open(RaffleCollection.fromAddress(collectionAddress));
 
     await nftCollection.send(
